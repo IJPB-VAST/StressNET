@@ -1,0 +1,312 @@
+---
+title: "MOFA analysis"
+output:
+  html_document:
+    fig_caption: yes
+    highlight: zenburn
+    self_contained: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    code_folding: hide
+  beamer_presentation:
+    colortheme: dolphinF
+    fig_caption: no
+    fig_height: 5
+    fig_width: 5
+    fonttheme: structurebold
+    highlight: default
+    incremental: no
+    keep_tex: no
+    slide_level: 1
+    toc: yes
+  slidy_presentation:
+    highlight: default
+    incremental: no
+    smart: no
+    slide_level: 1
+    self_contained: yes
+    keep_md: yes
+    smaller: yes
+    theme: cerulean
+    toc: yes
+    widescreen: yes
+  ioslides_presentation:
+    highlight: zenburn
+    incremental: no
+  pdf_document:
+    fig_caption: yes
+    highlight: zenburn
+    toc: yes
+    toc_depth: 3
+  revealjs::revealjs_presentation:
+    theme: night
+    transition: none
+    self_contained: true
+    slide_level: 1
+    css: ../slides.css
+font-import: http://fonts.googleapis.com/css?family=Risque
+font-family: Garamond
+transition: linear
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup}
+library(knitr)
+knitr::opts_chunk$set(
+  fig.width = 15, fig.height = 15, 
+  fig.path = 'figures/StressNet_union_',
+  fig.align = "center", 
+  size = "tiny", 
+  file.path ='file/StressNet_union_',
+   echo = TRUE, eval = TRUE, 
+  warning = FALSE, message = FALSE, 
+  results = TRUE, comment = "")
+options(scipen = 12) # Max number of digits for non-scientific notation
+```
+  
+
+## MOFA_integration
+
+
+```{r loads, warning=FALSE, message=FALSE}
+library("ggplot2")
+library("pheatmap")
+library("dplyr")
+library('data.table')
+library('MOFA2')
+library("eoffice")
+library("colorRamps")
+library("plyr")
+library("gtools")
+library("tidyverse")
+library("tidyr")
+library("ComplexHeatmap")
+library("reshape2")
+library("tidyr")
+library("patchwork")
+library("circlize")
+library("kableExtra")
+library("basilisk")
+library("doParallel")
+library('tibble')
+library('GGally')
+library('dplyr')
+
+
+
+```
+
+
+
+
+
+# MOFA_5acc
+
+```{r Load data,warning=FALSE,message=FALSE,fig.width=4,fig.height=3}
+#subset RNA matrix use only DEG
+
+sampleIDcrossTable <- read.table("data/sample_ID_cross_table.tsv", header = TRUE)
+gene_aliases <- read.table("data/gene_aliases_20181231_summary.tsv",header = T)
+deg_genelist <- read.csv('data/deg_genelist.csv',row.names = 1)
+matrix <- read.table("data/omics_matrix.tsv",header=T,check.names = F)
+rownames(matrix) <- gsub("[[:punct:]]", "",rownames(matrix)  )
+rownames(matrix)  <- gsub("XC", "%C",rownames(matrix)  )
+rownames(matrix)  <- gsub("XN", "%N",rownames(matrix)  )
+
+submatrix <- matrix[,colnames(matrix) %in% c(sampleIDcrossTable$metabolo.id,"dataset")]   
+ 
+
+data <-  list(
+  mRNA =   submatrix[submatrix$dataset=="transcriptome"& rownames(submatrix) %in%c(deg_genelist$gene_name),] ,
+ metabo =  submatrix[submatrix$dataset=="metabolomic",],
+ growth =  submatrix[submatrix$dataset=="growth",]) 
+   
+
+data$mRNA <- data$mRNA[,-1] %>% data.matrix()
+data$metabo <- data$metabo[,-1]%>% data.matrix()
+data$growth <- data$growth[,-1]%>% data.matrix()
+
+my_colour = list(
+    Accession = c('Col-0'= "blue",'Cvi-0'= "orange" ,'Sha'="purple",'Tsu-0'= "red" ,'Bur-0'= "green"),
+    Condition = c('W-N-' = "red", 'W+N-' = "purple", 'W-N+' = "orange", 'W+N+' = "blue"),
+    rep.bio = c(P3ID33 = "grey", P3ID34 = "black")
+)
+
+
+MOFAobject  <- create_mofa(data) 
+
+
+## Create an object of class MOFAmodel, which will be used below to run MOFA methods
+data_opts <- get_default_data_options(MOFAobject)
+
+data_opts
+
+
+model_opts <- get_default_model_options(MOFAobject)
+
+# par défaut le nb de facteurs dans le modèle est de 0.5 fois le nb d'ech° (ici n=119)
+
+model_opts$num_factors <- 29
+
+model_opts
+train_opts <- get_default_training_options(MOFAobject)
+head(train_opts)
+
+# Automatically drop factors that explain less than 2% of variance in all omics
+
+train_opts$drop_factor_threshold <- 0.02
+
+train_opts$seed <- 2020
+
+# maxiter à 100 pour accélérer le calcul
+# maxiter par défaut à 5000
+
+train_opts$maxiter<-5000
+
+# suivi de l'évolution du calcul
+
+train_opts$verbose <- TRUE
+
+train_opts
+
+  
+MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts
+)
+
+MOFAobject <- run_mofa(MOFAobject,use_basilisk = TRUE)
+
+```
+
+
+# Plot_variance_explained
+
+ 
+```{r Plot_variance_explained a trained MOFA model,fig.width=4,fig.height=6}
+Nsamples = sum(MOFAobject@dimensions$N)
+sample_metadata <-  sampleIDcrossTable %>% rownames_to_column("sample")
+
+samples_metadata(MOFAobject) <- sample_metadata
+head(MOFAobject@samples_metadata, n=3)
+# Variance explained by each factor in each view
+
+plot_variance_explained(MOFAobject, x="view", y="factor")
+plot_variance_explained(MOFAobject, x="group", y="factor", plot_total = T)[[2]]
+
+plot_factors(MOFAobject, 
+  factors = 1:3,
+  color_by = "Condition",
+  shape_by = "ecotype"
+)
+
+  
+```
+
+### LF top weigeht factors
+```{r LF top weigeht factors,fig.width=10,fig.height=4}
+
+growth_weight <-plot_weights(MOFAobject, view = "growth",factor = 1:2, nfeatures = 20)
+
+mRNA_weight <-plot_weights(MOFAobject, view = "mRNA", factor = 1:2, nfeatures = 20)
+
+metabo_weight<- plot_weights(MOFAobject, view = "metabo", factor =  1:2, nfeatures = 20)
+
+
+(growth_weight )/(mRNA_weight)/(metabo_weight )
+ 
+```
+
+### consensusplot of selected LFs
+
+```{r consensusplot of selected LFs,fig.height=18,fig.width=15,out.width="120%",out.width="120%" }
+ 
+ 
+MOFAweightsmRNA <- get_weights(MOFAobject, views = "mRNA",  factors = 1:3,  as.data.frame = T)  %>% group_by(factor) %>% top_n(abs(value),n= 20)
+
+MOFAweightsMeta <- get_weights(MOFAobject, views = "metabo",  factors = 1:3,  as.data.frame = T)  %>% group_by(factor) %>% top_n(abs(value),n= 10 )
+
+MOFAweightsgrowth <- get_weights(MOFAobject, views = "growth",  factors = 1:3,  as.data.frame = T)  %>% group_by(factor) %>% top_n(abs(value),n= 10 )
+
+
+LF2<- as.matrix(rbind(
+  data$growth[unique(as.character(MOFAweightsgrowth$feature)),],
+  data$metabo[unique(as.character( MOFAweightsMeta$feature)),],
+  data$mRNA[unique(as.character(MOFAweightsmRNA$feature)), ]))
+
+
+LF2 <- merge(LF2,gene_aliases,by.x="row.names",by.y="name",all.x=T)
+rownames(LF2) <-  gsub("_NA","", paste0(LF2$Row.names,"_",gsub(".*,","",LF2$symbols))  )
+
+mat_col<- traitData[,c("rep.bio","ecotype","Condition")]
+mat_col<- na.omit(mat_col[colnames(LF2),])
+
+ 
+selectionlist<- c( as.character(MOFAweightsgrowth$feature),as.character( MOFAweightsMeta$feature),as.character(MOFAweightsmRNA$feature))
+ 
+ 
+submatrix <- matrix[rownames(matrix) %in% c(selectionlist),colnames(matrix) %in% c(traitData$metabolo.id)]
+
+submatrixt <- merge( t(submatrix),sampleIDcrossTable,by="row.names")
+samplemean <- submatrixt %>% group_by(ecotype,Condition) %>%      
+             summarise_if(is.numeric, mean, na.rm = TRUE) %>% data.frame()
+rownames(samplemean) <- paste0(samplemean$ecotype,"_",samplemean$Condition)
+
+mat_col<- samplemean[,c("ecotype","Condition")]
+mat <- t(samplemean[,-c(1:2,ncol(samplemean))])
+mat <- merge(mat,gene_aliases,by.x="row.names",by.y="name",all.x=T)
+rownames(mat) <-  gsub("_NA","", paste0(mat$Row.names,"_",gsub(".*,","",mat$symbols))  )
+
+selectionlist<- c( as.character(MOFAweightsgrowth$feature),as.character( MOFAweightsMeta$feature),as.character(MOFAweightsmRNA$feature))
+ 
+selectionlist
+
+```  
+
+
+```{r plots}
+
+
+submatrix <- matrix[rownames(matrix) %in% c(selectionlist),colnames(matrix) %in% c(traitData$metabolo.id)]
+
+submatrixt <- merge( t(submatrix),sampleIDcrossTable,by="row.names")
+samplemean <- submatrixt %>% group_by(ecotype,Condition) %>%      
+             summarise_if(is.numeric, mean, na.rm = TRUE) %>% data.frame()
+rownames(samplemean) <- paste0(samplemean$ecotype,"_",samplemean$Condition)
+
+mat_col<- samplemean[,c("ecotype","Condition")]
+mat <- t(samplemean[,-c(1:2,ncol(samplemean))])
+mat <- merge(mat,gene_aliases,by.x="row.names",by.y="name",all.x=T)
+rownames(mat) <-  gsub("_NA","", paste0(mat$Row.names,"_",gsub(".*,","",mat$symbols))  )
+
+res <- pheatmap(
+  mat = as.matrix(na.omit(mat[,-c(1,ncol(mat))])),
+  scale = "row",  name = 'Phenotype',
+  border_color      = NA,
+  show_colnames     = TRUE,
+  show_rownames     = TRUE,
+ annotation_col    = mat_col,
+ annotation_colors = my_colour,
+  drop_levels       = TRUE,
+  fontsize = 14,
+ angle_col = "90",
+  main = ""
+)
+
+plot <- as.ggplot(res)
+
+ggarrange(plot, 
+          ncol = 1, nrow = 1)
+
+ggsave("figures/Figure_8.jpg",   width = 20, height = 50, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_8.svg",  width = 20, height = 50, units = c("cm"), dpi = 600)
+
+```
+ 
