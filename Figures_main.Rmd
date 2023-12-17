@@ -1,0 +1,1926 @@
+---
+title: "StressNet main figures "
+output:
+  html_document:
+    fig_caption: yes
+    highlight: zenburn
+    self_contained: yes
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+    code_folding: hide
+  beamer_presentation:
+    colortheme: dolphinF
+    fig_caption: no
+    fig_height: 5
+    fig_width: 5
+    fonttheme: structurebold
+    highlight: default
+    incremental: no
+    keep_tex: no
+    slide_level: 1
+    toc: yes
+  slidy_presentation:
+    highlight: default
+    incremental: no
+    smart: no
+    slide_level: 1
+    self_contained: yes
+    keep_md: yes
+    smaller: yes
+    theme: cerulean
+    toc: yes
+    widescreen: yes
+  ioslides_presentation:
+    highlight: zenburn
+    incremental: no
+  pdf_document:
+    fig_caption: yes
+    highlight: zenburn
+    toc: yes
+    toc_depth: 3
+  revealjs::revealjs_presentation:
+    theme: night
+    transition: none
+    self_contained: true
+    slide_level: 1
+    css: ../slides.css
+font-import: http://fonts.googleapis.com/css?family=Risque
+font-family: Garamond
+transition: linear
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r setup}
+library(knitr)
+knitr::opts_chunk$set(
+  fig.width = 15, fig.height = 15, 
+  fig.path = 'figures/StressNet',
+  fig.align = "center", 
+  size = "tiny", 
+  file.path ='file/StressNet',
+  echo = TRUE, eval = TRUE, 
+  warning = FALSE, message = FALSE, 
+  results = TRUE, comment = "")
+options(scipen = 12) ### Max number of digits for non-scientific notation
+```
+
+# data import
+
+```{r chunk1112,warning=FALSE,message=FALSE}
+library("reshape2")
+library("agricolae")
+library('colorRamp2')
+library("ggplot2")
+library('VennDiagram')
+library("ggrepel")
+library('ggplotify')
+library('pheatmap')
+library('VCA')
+library("tibble")
+library("stringr")
+library("ggpubr")
+library("kableExtra")
+library("gridExtra")
+library("tidyr")
+library('gtools')
+library("dplyr")
+library("patchwork")
+library("plyr")
+library("clusterProfiler")
+library("org.At.tair.db")
+library('smatr')
+library('ggplot2')
+library('ggpmisc')
+library('ComplexHeatmap')
+library("RColorBrewer")
+
+```
+
+
+## Figure 1 
+
+ 
+```{r Figure 1}
+
+#phenoscope-data
+Geno= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0")
+colorCond= c("blue","orange","purple","red")
+Cond= c("W+N+","W-N+","W+N-","W-N-")
+
+
+GrowthParameter <- read.csv('data/Stressnet_Growth_parameter.csv', header = TRUE )
+GrowthParameter$Geno <- gsub("\\.0","-0",GrowthParameter$Geno)
+
+
+PhysiologicalParameter <- read.csv('data/Stressnet_Physiological_parameter.csv', header = TRUE )
+
+PhysiologicalParameter$Geno <- gsub("\\.0","-0",PhysiologicalParameter$Geno)
+ 
+ 
+```
+
+
+###  Figure_1A: PRA projected rosette area 
+
+```{r Figure_1A}
+
+subPhenoData <- reshape2::melt(GrowthParameter[,grepl("Geno|Cond|PRAD", colnames(GrowthParameter))],id = c("Geno","Cond"))
+   
+subPhenoData$Day <- gsub("PRAD","",subPhenoData$variable)
+subPhenoData$Day <- as.numeric(as.character(subPhenoData$Day))
+subPhenoData[,"PRAcm"] <- as.numeric(subPhenoData$value)
+
+sumdataall = ddply(subPhenoData,. (Geno,Day,Cond),summarise, mean= mean(PRAcm,na.rm = T),sd= sd(PRAcm,na.rm = T))
+
+sumdataall[,"DAS"] <- sumdataall$Day + 8
+sumdataall$Geno <- factor(sumdataall$Geno,levels = Geno )
+sumdataall$Cond <- factor(sumdataall$Cond,levels = Cond )
+
+Figure_1A <- ggplot(sumdataall, aes(DAS, mean, colour = Cond) ) + geom_line() +theme(legend.position="top") + ggtitle("Projected Rosette Area") + facet_wrap(. ~ Geno ,ncol = 5,scales = "fixed") + theme(axis.text.x = element_text(angle=90)) + scale_color_manual(values= colorCond,limits = Cond) + ylab(expression("PRA("*cm^2*")")) +  labs(color = "Condition")
+
+
+
+```
+
+
+### Figure_1B : RERi3 relative expansion rate
+
+```{r Figure_1B}
+ 
+subPhenoData <- melt(GrowthParameter[,grepl("Geno|Cond|RERinstantD|Experiment", colnames(GrowthParameter))],id = c("Geno","Cond"))
+
+subPhenoData$Day <- gsub("RERinstantD","",subPhenoData$variable) 
+subPhenoData$RERinstant <- subPhenoData$value
+
+subPhenoData$Day <- as.numeric(as.character(subPhenoData$Day)) +8
+  
+
+###  RERi relative expansion rate normalized by control
+ 
+ 
+µdata <- ddply(subPhenoData,.(Cond,Geno,Day),summarise, RERinstant = mean(value,na.rm = T))
+# Calculation of the ratio
+allµdata <- NULL
+µdata[,"Ratio"]<- 1
+subsetµdata <- µdata
+ for (i in 1:nrow(subsetµdata)) {
+ subsetµdata$Ratio[i] =  subsetµdata$RERinstant[i]/subsetµdata$RERinstant[which(subsetµdata$Day== subsetµdata$Day[i]&subsetµdata$Cond=="W+N+"& subsetµdata$Geno==subsetµdata$Geno[i])]
+ }
+   allµdata<-rbind(subsetµdata,allµdata)
+
+## Graphe for each genotype (with the ratio above and the significance below) :
+
+Allpval =NULL
+for (i in c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0")) {
+dataCol <- subPhenoData[subPhenoData$Geno==i,]
+Pval <- data.frame(day=c(9:31))
+
+ for (d in 9:31){
+		Pval$A[Pval$day==d] <- -log(anova(lm(value~Cond,dataCol[dataCol$Day==d&dataCol$Cond%in%c("W+N+","W-N+"),]))$"Pr(>F)"[1])
+		Pval$B[Pval$day==d] <- -log(anova(lm(value~Cond,dataCol[dataCol$Day==d&dataCol$Cond%in%c("W+N+","W+N-"),]))$"Pr(>F)"[1])
+		Pval$C[Pval$day==d] <- -log(anova(lm(value~Cond,dataCol[dataCol$Day==d&dataCol$Cond%in%c("W+N+","W-N-"),]))$"Pr(>F)"[1])
+  }
+   Pval[,"Geno"] <- i
+  Allpval <- rbind(Pval,Allpval)
+}
+
+allµdata[,"DAS"] <- allµdata$Day 
+Allpval[,"DAS"] <- Allpval$day 
+allµdata$Geno <- factor(allµdata$Geno,levels= Geno) 
+Allpval$Geno <- factor(Allpval$Geno,levels= Geno) 
+
+dy4g1<- ggplot(allµdata,aes(x=DAS,y=Ratio,colour=Cond)) + geom_line() + facet_grid(.~Geno,scales = "fixed")  + annotate("segment",x=10,xend=31,y=1,yend=1) + ggtitle("Rosette Expansion Rate") + theme(legend.position="top")+ ylab(" Stress/Control ratio") +  scale_colour_manual(values=c("blue","orange","purple","red"),limits=c("W+N+","W-N+","W+N-","W-N-")) +  labs(color = "Condition")
+  
+dy4g2 <- ggplot(Allpval,aes(x=DAS))+ geom_line(aes(y=A),colour="orange")+ geom_line(aes(y=B),colour="purple")+ facet_grid(.~Geno,scales = "fixed")+ geom_line(aes(y=C),colour="red")+ ylab("-log(Stress/Control significance)") + xlab("DAS")+  annotate("segment",x=10,xend=31,y=-log(0.05),yend=-log(0.05),lty=2) + annotate("segment",x=10,xend=31,y=-log(0.01),yend=-log(0.01),lty=2) + annotate("segment",x=10,xend=31,y=-log(0.001),yend=-log(0.001),lty=2)	
+
+Figure_1B <-  dy4g1/dy4g2 
+Figure_1B
+ 
+
+```
+### Figure_1C : Total Carbon content were normalize by DW(mg).
+
+```{r Figure_1C}
+
+data_all <-  PhysiologicalParameter
+
+Hsdcol <-   HSD.test(aov(d.13C.12C ~  Cond, data = data_all[  data_all$Geno == "Col-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()  %>% mutate(Geno = "Col-0")
+Hsdsvi <-   HSD.test(aov(d.13C.12C ~  Cond, data = data_all[  data_all$Geno == "Cvi-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Cvi-0")
+Hsdsha <-   HSD.test(aov(d.13C.12C ~  Cond, data = data_all[ data_all$Geno == "Sha",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Sha")
+Hsdbur <-   HSD.test(aov(d.13C.12C ~  Cond, data = data_all[  data_all$Geno == "Bur-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Bur-0")
+Hsdtsu <-   HSD.test(aov(d.13C.12C ~  Cond, data = data_all[  data_all$Geno == "Tsu-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno ="Tsu-0")
+
+Hsd <- rbind(Hsdcol,Hsdsvi,Hsdsha,Hsdbur,Hsdtsu)
+Hsd$Geno <- factor(Hsd$Geno,levels= Geno) 
+sum <- ddply(data_all,.(Cond,Geno),summarise,n= length(d.13C.12C[!is.na(d.13C.12C)]))
+sum$Geno <- factor(sum$Geno,levels= Geno) 
+data_all$Geno <- factor(data_all$Geno,levels= Geno) 
+data_all$Cond <- factor(data_all$Cond,levels= Cond) 
+
+Figure_1C <- ggboxplot(data_all, x = "Cond", y = "d.13C.12C", color = "Cond",  palette =c("blue", "orange", "purple","red") ,add = "jitter") +  facet_wrap(. ~ Geno,ncol = 5,scales = "fixed")  + ylab(expression(delta*"13C (‰)")) + theme_bw()+ geom_text(data=Hsd,aes(x=Cond,y= 1.1*max(d.13C.12C),label=groups),vjust=0)+ ggtitle ('C isotope discrimination')  + theme(axis.text.x = element_text(angle=90)) + xlab('') + theme(legend.position="None")
+
+Figure_1C
+
+ 
+```
+### Figure_1D:  N (mg/rosette)
+
+```{r Figure_1D}
+
+data_all <-  PhysiologicalParameter 
+
+Hsdcol <-   HSD.test(aov(TotalN ~  Cond, data = data_all[  data_all$Geno == "Col-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()  %>% mutate(Geno = "Col-0")
+Hsdsvi <-   HSD.test(aov(TotalN ~  Cond, data = data_all[  data_all$Geno == "Cvi-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Cvi-0")
+Hsdsha <-   HSD.test(aov(TotalN ~  Cond, data = data_all[  data_all$Geno == "Sha",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Sha")
+Hsdbur <-   HSD.test(aov(TotalN ~  Cond, data = data_all[ data_all$Geno == "Bur-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno = "Bur-0")
+Hsdtsu <-   HSD.test(aov(TotalN ~  Cond, data = data_all[ data_all$Geno == "Tsu-0",]), c("Cond" ), group=TRUE, alpha=0.05)$group %>% rownames_to_column("Cond")  %>% as.data.frame()   %>% mutate(Geno ="Tsu-0")
+
+Hsd <- rbind(Hsdcol,Hsdsvi,Hsdsha,Hsdbur,Hsdtsu)
+Hsd$Geno <- factor(Hsd$Geno,levels= Geno) 
+
+sum <- ddply(data_all,.(Cond,Geno),summarise,n= length(TotalN[!is.na(TotalN)]))
+sum$Geno <- factor(sum$Geno,levels= Geno) 
+data_all$Geno <- factor(data_all$Geno,levels= Geno) 
+data_all$Cond <- factor(data_all$Cond,levels= Cond) 
+
+Figure_1D <- ggboxplot(data_all, x = "Cond", y = "TotalN", color = "Cond",  palette =c("blue", "orange", "purple","red") ,add = "jitter") + facet_wrap(. ~ Geno,ncol = 5,scales = "fixed")   + ylab(" N (mg/rosette)") + theme_bw()+ ggtitle("Total N stored per rosette") +  geom_text(data=Hsd,aes(x=Cond,y=0.2*min(TotalN),label=groups),vjust=0) +
+  theme(axis.text.x = element_text(angle=90)) + theme(legend.position="None") + xlab('')
+Figure_1D
+ 
+```
+
+
+### Figure_1:ALL except rosette tiff
+
+```{r  Figure_1}
+
+ggarrange(Figure_1A, Figure_1B, Figure_1C,Figure_1D,  
+          labels = c("A", "B", "C", "D",'E'), align = "hv",
+          heights = c(1, 2,1, 1),
+          ncol = 1, nrow = 5)
+ggsave("figures/Figure_1.jpg", width = 16, height = 40, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_1.svg", width = 16, height = 40, units = c("cm"), dpi = 600)
+
+```
+
+```{r fuction}
+
+parse_ratio <- function(ratio) {
+    ratio <- sub("^\\s*", "", as.character(ratio))
+    ratio <- sub("\\s*$", "", ratio)
+    numerator <- as.numeric(sub("/\\d+$", "", ratio))
+    denominator <- as.numeric(sub("^\\d+/", "", ratio))
+    return(numerator/denominator)
+}
+```
+
+## Figure_2
+
+
+### Figure_2B
+```{r,backgroundlist}
+
+ecotype = "Col-0"
+cond = 'W+N-'
+resN <- read.table(paste0("data/Counts/",ecotype,'_',cond,"_refer_whole.tsv"),row.name="row",header=T)
+
+cond = 'W-N+'
+resW <- read.table(paste0("data/Counts/",ecotype,'_',cond,"_refer_whole.tsv"),row.name="row",header=T)
+
+cond = 'W-N-'
+resNW <- read.table(paste0("data/Counts/",ecotype,'_',cond,"_refer_whole.tsv"),row.name="row",header=T)
+backgroundlist <- levels(as.factor(as.character(rownames(resW),rownames(resN),rownames(resNW))))
+```
+
+```{r Figure_2B}
+cond = 'W+N-'
+dataset <- subset(resN,padj < 0.05 & abs(log2FoldChange) > 1)
+geneList = dataset$log2FoldChange
+names(geneList) = rownames(dataset)
+
+geneList <- sort(geneList, decreasing = TRUE)
+
+egoup <- enrichGO(names(geneList[geneList > 1]), keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                         ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egoup <- gofilter(egoup,level = 5)  %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+
+
+egodown <- enrichGO(names(geneList[geneList < -1]),                 
+                       keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                          ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egodown <- gofilter(egodown,level = 5) %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio))) 
+
+ 
+Figure_2Bup <- clusterProfiler::dotplot(egoup, x="FoldEnrichment",showCategory=18) + ggplot2::ggtitle(paste0(cond,'_Up')) + scale_y_discrete(labels=function(y) str_wrap(y, width=40))   
+
+Figure_2Bdown <- clusterProfiler::dotplot(egodown, x="FoldEnrichment",showCategory=18) + ggplot2::ggtitle(paste0(cond,"_Down")) + scale_y_discrete(labels=function(y) str_wrap(y, width=40))
+
+Figure_2B <-  Figure_2Bup/Figure_2Bdown
+Figure_2B
+ 
+``` 
+
+### Figure_2C
+```{r,Figure_2C}
+
+cond = 'W-N-'
+
+dataset <- subset(resNW,padj < 0.05 & abs(log2FoldChange) > 1)
+geneList = dataset$log2FoldChange
+names(geneList) = rownames(dataset)
+
+geneList <- sort(geneList, decreasing = TRUE)
+
+egoup <- enrichGO(names(geneList[geneList > 1]), keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                         ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egoup <- gofilter(egoup,level = 5)  %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+
+
+egodown <- enrichGO(names(geneList[geneList < -1]),                 
+                       keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                          ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egodown <- gofilter(egodown,level = 5) %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio))) 
+
+ 
+Figure_2Cup <- clusterProfiler::dotplot(egoup, x="FoldEnrichment",showCategory=20) + ggplot2::ggtitle(paste0(cond,'_Up')) + scale_y_discrete(labels=function(y) str_wrap(y, width=35))   
+
+Figure_2Cdown <- clusterProfiler::dotplot(egodown, x="FoldEnrichment",showCategory=20) + ggplot2::ggtitle(paste0(cond,"_Down")) + scale_y_discrete(labels=function(y) str_wrap(y, width=35))
+
+Figure_2C <-  Figure_2Cup/Figure_2Cdown
+Figure_2C
+ 
+
+``` 
+
+### Figure_2D
+```{r Figure_2D}
+
+cond = 'W-N+'
+dataset <- subset(resW,padj < 0.05 & abs(log2FoldChange) > 1)
+geneList = dataset$log2FoldChange
+names(geneList) = rownames(dataset)
+
+geneList <- sort(geneList, decreasing = TRUE)
+
+egoup <- enrichGO(names(geneList[geneList > 1]), keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                         ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egoup <- gofilter(egoup,level = 5)  %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+
+
+egodown <- enrichGO(names(geneList[geneList < -1]),                 
+                       keyType = "TAIR",
+                        OrgDb = org.At.tair.db,
+                          ont = "BP", 
+                         universe = as.character(backgroundlist) , 
+                         readable = TRUE,
+                        pAdjustMethod = "BH",                 
+                        pvalueCutoff = 0.05,                 
+                        qvalueCutoff = 0.05)
+
+egodown <- gofilter(egodown,level = 5) %>% mutate(., FoldEnrichment = parse_ratio(GeneRatio) / parse_ratio(BgRatio)) %>%  mutate(., richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio))) 
+
+ 
+Figure_2Dup <- clusterProfiler::dotplot(egoup, x="FoldEnrichment",showCategory=20) + ggplot2::ggtitle(paste0(cond,'_Up')) + scale_y_discrete(labels=function(y) str_wrap(y, width=35))   
+
+Figure_2Ddown <- clusterProfiler::dotplot(egodown, x="FoldEnrichment",showCategory=20) + ggplot2::ggtitle(paste0(cond,"_Down")) + scale_y_discrete(labels=function(y) str_wrap(y, width=35))
+
+Figure_2D <-  Figure_2Dup/Figure_2Ddown
+Figure_2D
+ 
+``` 
+
+```{r Figure_2}
+ggarrange(Figure_2B, Figure_2C, Figure_2D, 
+          labels = c("B",  "C",  'D'),  
+          ncol = 3, nrow = 1)
+ggsave("figures/Figure_2B_D.jpg", width = 45, height = 32, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_2B_D.svg", width = 45, height = 32, units = c("cm"), dpi = 600)
+
+``` 
+
+  
+ 
+
+## Figure_3
+```{r Figure_3}
+list<- c('AT1G02205','AT2G40330','AT2G47880','AT1G03020','AT1G14100','AT1G24880','AT1G19396','AT2G16980' )
+
+sampleIDcrossTable <- read.table("data/sample_ID_cross_table.tsv", header = TRUE)
+counts<- read.table( "data/RNA.counts.scaled.log2.tsv",check.names = F) %>% rownames_to_column('gene_ID')
+
+
+gene_aliases <- read.table( "data/gene_aliases_20181231_summary.tsv",header = T)
+counts<- counts[,!(colnames(counts) %in% c("Bur.0_W1N1_P3ID34_b"))]
+ymelt <- reshape2::melt(counts[ counts$gene_ID %in% list,])
+names(ymelt) <- c("geneID","samples",  "counts")
+ymelt <- ymelt %>% separate(samples, c("Genotype","condition","phenoscope","rep"), sep = "_")
+# symbol
+ymelt$symbol10 <- gene_aliases$symbols[match(ymelt$geneID ,gene_aliases$name)]
+#condition
+
+# symbol
+ymelt$condition <- gsub("0","-",ymelt$condition)
+ymelt$condition <- gsub("1","+",ymelt$condition)
+ymelt$Genotype <- gsub('\\.0','-0',ymelt$Genotype) 
+
+ymelt$condition <- factor(ymelt$condition,levels= c("W+N+","W-N+","W+N-","W-N-")) 
+ymelt$Genotype <- factor(ymelt$Genotype,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0")) 
+
+# symbol + gene name
+ymelt$geneSymbol <- paste(ymelt$geneID,ymelt$symbol10)
+
+p1 <- ggboxplot(ymelt[ymelt$geneID=='AT1G02205',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT1G02205 CER1,CER22') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p2 <- ggboxplot(ymelt[ymelt$geneID=='AT2G40330',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT2G40330 PYL6,RCAR9') + facet_grid(. ~Genotype, scales = "fixed") + theme_bw()  + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p3 <- ggboxplot(ymelt[ymelt$geneID=='AT2G47880',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT2G47880 CEPD2,ROXY9') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))   + xlab('')
+
+p4 <- ggboxplot(ymelt[ymelt$geneID=='AT1G03020',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT1G03020 GRXS1,ROXY16') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p5 <- ggboxplot(ymelt[ymelt$geneID=='AT1G14100',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT1G14100 FUT8') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p6 <- ggboxplot(ymelt[ymelt$geneID=='AT1G24880',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT1G24880 AtLpxC2,LpxC2') + facet_grid(. ~Genotype, scales = "fixed") + theme_bw()  + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p7 <- ggboxplot(ymelt[ymelt$geneID=='AT1G19396',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT1G19396 NA') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90))  + xlab('')
+
+p8 <- ggboxplot(ymelt[ymelt$geneID=='AT2G16980',], x = "condition", y = "counts", color = "condition", add = "jitter",palette = c("blue","orange","purple","red")) +  ggtitle('AT2G16980 NA') + facet_grid(. ~Genotype, scales = "fixed")  + theme_bw() + ylab("Normalized Counts") + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") + theme(plot.title = element_text(hjust = 0.5)) + theme(axis.text.x = element_text(angle=90)) + xlab('')
+
+Figure_3 <-  ggarrange(p1,p2,p3,p4,p5,p6,p7,p8,
+                       labels=c('A','B','C','D','E','F','G','H'),
+                        ncol = 2, nrow = 4)
+Figure_3
+ggsave("figures/Figure_3.jpg",   width = 30, height = 45, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_3.svg",  width = 30, height = 45, units = c("cm"), dpi = 600)
+
+
+``` 
+
+## Figure_4
+
+### Figure_4A
+```{r Figure_4A}
+
+adjvalue = 0.05
+alpha = 1
+DEG=NULL
+
+for (ecotype in c("Col-0","Sha","Cvi-0","Tsu-0","Bur-0"))  {
+  for  (cond in c("W-N+","W+N-","W-N-"))  {
+  res <- read.table(paste0("data/Counts/",ecotype,'_',cond,"_refer_whole.tsv"),  header=T)
+  res<- subset(res,padj< adjvalue & abs(log2FoldChange) > alpha)
+  DEG<- c(DEG,as.character(res$row))
+  DEG<- DEG[!duplicated(DEG)] 
+  }
+}
+
+counts<- read.table(paste0("data/merge_counts_scaled_log2.tsv"),check.names = F)
+counts <- counts[counts$GeneID %in% c(DEG),]
+counts<- counts[,!(colnames(counts) %in% c("Bur.0_W1N1_P3ID34_b"))] 
+rownames(counts) <- counts$GeneID
+countmatrix <- counts[,-1]
+sample <-  data.frame(sample = colnames(countmatrix))
+annotation_col <- separate(sample,col="sample", into = c("Geno", "Cond","Exp","rep"), sep = "_",remove = FALSE)
+annotation_col$Cond <- gsub("1","+",annotation_col$Cond )
+annotation_col$Cond <- gsub("0","-",annotation_col$Cond )
+annotation_col$Geno <- gsub("\\.0","-0",annotation_col$Geno )
+
+rownames(annotation_col) <- annotation_col$sample
+
+countmatrix<- countmatrix %>% mutate_if(is.numeric, ~replace(., is.na(.), -3.321928))
+
+my_colour = list(
+    Geno = c('Col-0'= "#5C9D79",'Cvi-0' = "#BF5F14", 'Sha' = "#736FAF", 'Tsu-0' = "#C62D86", 'Bur-0'= "#7CA433"),
+    Cond = c('W-N-' = "red", 'W+N-' = "purple", 'W-N+' = "orange", 'W+N+' = "blue")
+ )
+ 
+res<- pheatmap(countmatrix, 
+          clustering_distance_rows = "correlation",
+          clustering_method = "average",
+          show_colnames = F, show_rownames = F,fontsize = 8,
+          clustering_distance_cols = "correlation",
+          color = colorRampPalette(c("blue", "yellow"))(30),
+          annotation_col = annotation_col[,c("Geno","Cond")],
+          annotation_colors = my_colour)
+
+plot <- as.ggplot(res)
+
+ggarrange(plot, 
+          labels = c('A'), 
+          ncol = 1, nrow = 1)
+
+ggsave("figures/Figure_4A.jpg",   width = 25, height = 50, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_4A.svg",  width = 25, height = 50, units = c("cm"), dpi = 600)
+
+```
+
+### Figure_4B
+```{r Figure_4B}
+
+mlist <- read.csv('data/vca.csv', row.names = 1)
+
+mlistdata <- reshape::melt(mlist)
+mlistdata$variable <- gsub("\\.","x",mlistdata$variable)
+mlistdata$variable <- factor(mlistdata$variable,levels= c("G", "W" ,'N', 'WxN', 'GxWxN','Exp', 'residual'))
+
+Figure_4B <- ggplot(mlistdata, aes(x=variable, y=value, fill=variable)) + geom_violin(trim=FALSE, scale = "width", draw_quantiles = c(0.25, 0.5, 0.75)) + stat_summary(fun.data=mean_sdl, geom="pointrange", color="black") +labs(title = paste0("GxWxN")) + xlab('')
+Figure_4B
+ 
+``` 
+
+
+### Figure_4C
+
+```{r Figure_4C1}
+
+eco.colors <- c("Bur0" = "#7CA433", 
+                    "Col0" = "#5C9D79",
+                    "Cvi0" = "#BF5F14",
+                    "Sha" = "#736FAF",
+                      "Tsu0" = "#C62D86")
+
+cond = 'W+N-'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+
+N_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+
+Nup <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_Up') ,
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+
+
+```
+
+```{r Figure_4C_2}
+cond = 'W+N-'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+
+N_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+ 
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+Ndown <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_down') ,
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+ 
+ 
+```
+
+```{r Figure_4C3}
+
+cond = 'W-N+'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+
+ W_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+
+Wup <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_Up') ,
+                   cat.dist = rep(.3, 5),
+                    margin=.3)
+
+
+
+```
+
+```{r Figure_4C4 }
+cond = 'W-N+'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+
+ W_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+Wdown <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_down') ,
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+ 
+ 
+```
+
+```{r Figure_4C5}
+
+cond = 'W-N-'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange > 1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange > 1)
+
+
+ NW_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+ 
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+NWup <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_Up') ,
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+
+
+```
+
+```{r Figure_4C6}
+
+cond = 'W-N-'
+
+res1 <- subset(read.table(paste0('data/Counts/Col-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res2 <- subset(read.table(paste0('data/Counts/Cvi-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res3 <- subset(read.table(paste0('data/Counts/Sha_',cond,'_refer_whole.tsv'),header=T), padj < 0.05  & log2FoldChange < -1)
+res4 <- subset(read.table(paste0('data/Counts/Tsu-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+res5 <- subset(read.table(paste0('data/Counts/Bur-0_',cond,'_refer_whole.tsv'),header=T), padj < 0.05 & log2FoldChange < -1)
+
+ NW_stress <- list(
+  Col0 = length(res1$row),
+  Tsu0 = length(res4$row),
+  Sha = length(res3$row),
+  Bur0 = length(res5$row),
+  Cvi = length(res2$row)
+)
+
+Col0 = as.character(res1$row) #1
+Tsu = as.character(res4$row) #1 #2
+Sha = as.character(res3$row) #1 
+Bur0 = as.character(res5$row) #1
+Cvi = as.character(res2$row) #11
+
+
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+
+NWdown <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main = paste0(cond,'_down') ,
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+ 
+ 
+```
+
+### Figure_4BC
+```{r Figure_4C}
+
+Figure_4C<- ggarrange(grobTree(Nup), grobTree(Ndown),
+                      grobTree(NWup), grobTree(NWdown),
+                      grobTree(Wup), grobTree(Wdown),
+                      labels = c('W+N-_up','W+N-_down',
+                                 'W-N-_up','W-N-_down',
+                                 'W-N+_up','W-N+_down'), 
+                      ncol = 2, nrow = 3)
+Figure_4C
+
+Figure_4BC <-  ggarrange(Figure_4B , Figure_4C,labels=c('B','C'),
+                        ncol = 1, nrow = 2, heights = c(1.2,3))
+Figure_4BC
+ggsave("figures/Figure_4BC.jpg",   width = 25, height = 50, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_4BC.svg",  width = 25, height = 50, units = c("cm"), dpi = 600)
+```
+
+## Figure_5
+
+```{r Figure_5}
+all=NULL
+
+for (ecotype in c("Col-0","Sha","Cvi-0","Tsu-0","Bur-0"))  {
+  resN <- read.table(paste0("data/Counts/",ecotype,"_W+N-_refer_whole.tsv"),  header=T)
+  resNW <- read.table(paste0("data/Counts/",ecotype,"_W-N-_refer_whole.tsv"),  header=T)
+  resW <- read.table(paste0("data/Counts/",ecotype,"_W-N+_refer_whole.tsv"),  header=T)
+
+  dataN <- merge(resN[,c("row","log2FoldChange","padj")],resNW[,c("row","log2FoldChange","padj")],by=c("row"), all=T)  %>% 
+    subset(., (abs(log2FoldChange.y) > 1 & padj.y< 0.05)| (abs(log2FoldChange.x) > 1 & padj.x < 0.05) )
+  dataN['Cond'] ="W-N-_W+N-"  
+  dataN['Accession']=ecotype
+  dataW <- merge(resW[,c("row","log2FoldChange","padj" )],resNW[,c("row","log2FoldChange","padj" )],by=c("row" ), all=T)  %>% 
+    subset(., (abs(log2FoldChange.y) > 1 & padj.y< 0.05)| (abs(log2FoldChange.x) > 1 & padj.x < 0.05) )
+  dataW['Cond'] ="W-N-_W-N+"  
+  dataW['Accession']=ecotype
+  all <- rbind(all,dataW,dataN)
+ 
+  }
+```
+### Figure_5A
+
+```{r Figure_5A}
+all$Accession <- factor(all$Accession,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0"))
+
+data = all[all$Cond =="W-N-_W+N-" ,]  %>% na.omit()
+
+# get sma in a data.frame
+
+ll.sma = sma(log2FoldChange.y~log2FoldChange.x*Accession,data=data)
+ll.sma$groupsummary
+
+# get coefficients in a data.frame
+
+cc <- data.frame(site=1:5,coef(ll.sma),ll.sma$groupsummary)
+cc[,"Accession"] <- rownames(cc)
+cc$Accession <- factor(cc$Accession,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0"))
+
+
+data$Accession <- factor(data$Accession,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0"))
+
+
+Figure_5A<- ggplot(data,aes(x= log2FoldChange.x, y=log2FoldChange.y, color = Accession)) + geom_point(colour = "grey")  + geom_abline(data = cc, aes(slope=slope, intercept=elevation,color = Accession)) + geom_abline(slope=1, intercept=0,color="black") + ylab("log2FC_W-N-") + xlab("log2FC_W+N-") + labs(color = "Accessions") + scale_color_manual(values=c("#5C9D79","#BF5F14", "#736FAF","#C62D86",'#7CA433'))
+
+ 
+```
+ 
+### Figure_5B
+```{r Figure_5B}
+
+data = all[all$Cond =="W-N-_W-N+",] %>% na.omit()
+# get sma in a data.frame
+
+ll.sma = sma(log2FoldChange.y~log2FoldChange.x*Accession,data=data)
+ll.sma$groupsummary
+# get coefficients in a data.frame
+cc <- data.frame(site=1:5,coef(ll.sma),ll.sma$groupsummary)
+cc[,"Accession"] <- rownames(cc)
+cc$Accession <- factor(cc$Accession,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0"))
+
+data$Accession <- factor(data$Accession,levels= c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0"))
+
+Figure_5B<-  ggplot(data,aes(x= log2FoldChange.x, y=log2FoldChange.y, color = Accession)) + geom_point(colour = "grey") + geom_abline(data = cc, aes(slope=slope, intercept=elevation,color = Accession)) + geom_abline(slope=1, intercept=0,color="black") + ylab("log2FC_W-N-") + xlab("log2FC_W-N+") + labs(color = "Accessions") +   scale_color_manual(values=c("#5C9D79","#BF5F14", "#736FAF","#C62D86",'#7CA433'))
+  
+ 
+Figure_5<- ggarrange( Figure_5A,Figure_5B,
+                      labels = c('A','B'), 
+                      ncol = 1, nrow = 2)
+Figure_5
+
+ggsave("figures/Figure_5.jpg",   width = 10, height = 14, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_5.svg",  width = 10, height = 14, units = c("cm"), dpi = 600)
+
+```
+
+
+## Figure_6
+### Figure_6A
+```{r Figure_6A}
+
+Pval <- read.csv('data/Pval_metabolite.csv')
+
+res1 <- subset(Pval[Pval$Geno=="Col-0",],Nstress.padj < 0.05)
+res2 <- subset(Pval[Pval$Geno=="Col-0",], Wstress.padj < 0.05)
+res3 <- subset(Pval[Pval$Geno=="Col-0",], combined_stress.padj < 0.05)
+
+
+N_stress <- list(
+  N = length(res1$metabolite),
+  W= length(res2$metabolite),
+  NW= length(res3$metabolite) )
+ 
+eco.colors <- c("N" = "purple", 
+                 "NW" = "red",
+                 "W" = "orange") 
+
+N = as.character(res1$metabolite) #1
+W = as.character(res2$metabolite) #1 #2
+NW = as.character(res3$metabolite) #1 
+
+area1=length(unique(N))#159
+area2=length(unique(NW))#1
+area3=length(unique(W))#0
+
+n12=length(intersect(N, NW))
+n13=length(intersect(N, W))
+n23=length(intersect(NW, W))
+n123=length(intersect(intersect(N, NW), W))
+
+
+     
+Figure_6A <- draw.triple.venn(category = c("W+N-", "W-N+", "W-N-"),
+                    cat.cex = 1.5,
+                    area1, area2, area3,
+                    n12, n13, n23,
+                    n123, 
+                    lwd = rep(2, 3),
+                    lty = rep("solid", 3),
+                    col =rep("black", 3),
+                    fill = eco.colors,
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main =  "W+N-",
+                    cat.dist = rep(.1, 3),
+                    margin=.2)
+ggarrange(grobTree(Figure_6A),label='A')
+
+ggsave("figures/Figure_6A.jpg",   width = 25, height = 12, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_6A.svg",  width = 25, height = 12, units = c("cm"), dpi = 600)
+
+``` 
+
+### Figure_6B
+```{r Figure_6B}
+ST002201_AN003604 <- read.delim("data/ST002201_AN003604.txt", header=FALSE)
+metabolite_matrix<- ST002201_AN003604[2:137,]
+label <- ST002201_AN003604[139:nrow(ST002201_AN003604),]
+colnames(metabolite_matrix) <- ST002201_AN003604[1,]
+colnames(label) <-  ST002201_AN003604[138,]
+label$class <- gsub("^.*_","",label$metabolite_fullname)
+
+data <- reshape::melt(metabolite_matrix,id = "metabolite_name")
+data <- data %>% separate(variable,c("Geno","Cond","Exp","rep"),sep = "_")
+data$value <- as.numeric(data$value)
+
+Pval <- read.csv('data/Pval_metabolite.csv')
+
+Conditionmean <- plyr::ddply(data,.(metabolite_name,Geno,Cond) ,summarise, mean = median(value))
+Ctrlmean <- Conditionmean[Conditionmean$Cond =="W+N+",]
+Conditionmean  <- merge(Conditionmean,Ctrlmean[,!(colnames(Ctrlmean) %in% c("Cond"))],by=c("metabolite_name","Geno"),all=F)
+Conditionmean[,"foldchange"] <- foldchange(Conditionmean$mean.x, Conditionmean$mean.y)
+Conditionmean[,"eco_cond"] <- paste0(Conditionmean$Geno,"_",Conditionmean$Cond)
+Conditionmean <- Conditionmean %>% subset(., foldchange !=1)
+
+submat <- tidyr::spread(Conditionmean[,c("eco_cond","metabolite_name","foldchange")], eco_cond, foldchange,fill=0)
+rownames(submat) <- submat$metabolite_name
+ 
+col_fun = colorRamp2(c(-5, 0, 5), c("blue", "white", "red"))
+
+listNW <- Pval[Pval$Wstress.padj > 0.05 & Pval$Nstress.padj > 0.05 & Pval$combined_stress.padj < 0.05 & Pval$Geno == "Col-0", ]
+listWNW <- Pval[Pval$Wstress.padj < 0.05 &  Pval$combined_stress.padj < 0.05 & Pval$Nstress.padj > 0.05 &Pval$Geno == "Col-0", ]
+listNNW <- Pval[Pval$Nstress.padj < 0.05 & Pval$combined_stress.padj < 0.05 & Pval$Wstress.padj > 0.05 & Pval$Geno == "Col-0", ]
+listall <- Pval[Pval$Nstress.padj < 0.05 & Pval$combined_stress.padj < 0.05 & Pval$Wstress.padj < 0.05 & Pval$Geno == "Col-0", ]
+
+
+submat = submat[rownames(submat) %in% as.character(Pval[Pval$combined_stress.padj < 0.05 &Pval$Geno == "Col-0",]$metabolite), ]
+
+mat  <- as.matrix(submat[,c("Col-0_W+N-","Col-0_W-N-", "Col-0_W-N+")])
+labels <- Pval[Pval$combined_stress.padj < 0.05 & Pval$Geno == "Col-0",c("Wstress.padj", "Nstress.padj","combined_stress.padj","metabolite")] 
+rownames(labels) <- labels$metabolite
+colnames(labels) <-  c("Col-0_W-N+","Col-0_W+N-", "Col-0_W-N-","metabolite")
+labels[labels<=0.05] <- "*"
+labels[labels<= 0.01] <- "**"
+labels[labels<=0.001] <- "***"
+labels[labels > 0.05 ] <- "n.s"
+
+label = as.matrix(labels[order(rownames(mat)),order(colnames(mat))])
+col_fun = colorRamp2(c(-5, 0, 5), c("blue", "white", "red"))
+
+NW <- Heatmap(
+   mat = mat[rownames(mat) %in% listNW$metabolite,],
+   name = "foldchange",row_title = "Group D",col = col_fun,
+   cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text( labels[rownames(labels) %in% listNW$metabolite,c("Col-0_W+N-","Col-0_W-N-", "Col-0_W-N+")][i, j], x = x, y = y, gp = gpar(fontsize = 10))
+})
+
+
+NWN <- Heatmap(
+   mat = mat[rownames(mat) %in% listNNW$metabolite,],
+   name = "foldchange",  row_title = "Group A",col = col_fun,
+   cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text( labels[rownames(labels) %in% listNNW$metabolite,c("Col-0_W+N-","Col-0_W-N-", "Col-0_W-N+")][i, j], x = x, y = y, gp = gpar(fontsize = 10))
+})
+
+
+WNW <- Heatmap(
+   mat = mat[rownames(mat) %in% listWNW$metabolite,],
+   name = "foldchange", row_title = "Group B",col = col_fun,
+   cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text( labels[rownames(labels) %in% listWNW$metabolite,c("Col-0_W+N-","Col-0_W-N-", "Col-0_W-N+")][i, j], x = x, y = y, gp = gpar(fontsize = 10))
+})
+
+
+all <- Heatmap(
+   mat = mat[rownames(mat) %in% listall$metabolite,],
+   name = "foldchange",  row_title = "Group C",col = col_fun,
+   cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(labels[rownames(labels) %in% listall$metabolite,c("Col-0_W+N-","Col-0_W-N-", "Col-0_W-N+")][i, j], x = x, y = y, gp = gpar(fontsize = 10))
+})
+ 
+
+jpeg('figures/Figure_6B.jpg', units="cm", width=20, height=28, res=600)
+
+Figure_6B <- NWN %v% WNW %v% all%v% NW 
+Figure_6B 
+
+dev.off()
+ 
+
+``` 
+
+### Figure_6C
+```{r Figure_6C}
+  
+ST002201_AN003604 <- read.delim("data/ST002201_AN003604.txt", header=FALSE)
+metabolite_matrix<- ST002201_AN003604[2:137,] 
+colnames(metabolite_matrix) <- ST002201_AN003604[1,]
+metabolite_matrix[,-1] <- sapply(metabolite_matrix[,-1], FUN = as.numeric)
+
+label <- ST002201_AN003604[139:nrow(ST002201_AN003604),]
+colnames(label) <-  ST002201_AN003604[138,]
+label$class <- gsub("^.*_","",label$metabolite_fullname)
+
+
+ # symbol
+
+data <- reshape::melt(metabolite_matrix,id = "metabolite_name")
+data <- data %>% separate(variable,c("Geno","Cond","Exp","rep"),sep = "_")
+
+Condition= c("W+N+","W-N+","W+N-","W-N-")
+
+data$Geno <- factor( data$Geno,levels=c("Col-0","Cvi-0","Sha","Tsu-0","Bur-0")) 
+data$Cond <- factor(data$Cond,levels=Condition) 
+
+ 
+data <- data[data$Geno == "Col-0",] 
+p1 <- ggboxplot(data[data$metabolite_name =="Sitosterol",], x = "Cond", y = "value", color = "Cond", palette =c("blue", "orange", "purple","red") ,add = "jitter") +      theme_bw()    + theme(axis.text.x = element_text(angle=45)) + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") +theme(legend.position = "none") +ylab("metabolite abundance/(ug/mgFW)") + ggtitle("Sitosterol_Col-0")
+
+p2 <- ggboxplot(data[data$metabolite_name == "Erythritol",], x = "Cond", y = "value", color = "Cond", palette =c("blue", "orange", "purple","red") ,add = "jitter") +      theme_bw()   + theme(axis.text.x = element_text(angle=45)) + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") +theme(legend.position = "none") +ylab("metabolite abundance/(ug/mgFW)") + ggtitle("Erythritol_Col-0")
+
+p3 <- ggboxplot(data[data$metabolite_name =="Shikimic acid",], x = "Cond", y = "value", color = "Cond", palette =c("blue", "orange", "purple","red") ,add = "jitter") + theme_bw() + theme(axis.text.x = element_text(angle=45)) + stat_compare_means(comparisons = list(c("W+N+","W-N+"),c("W+N+","W+N-"),c("W+N+","W-N-")), label = "p.signif",method = "t.test") +theme(legend.position = "none") +ylab("metabolite abundance/(ug/mgFW)") + ggtitle("Shikimic acid_Col-0")
+
+  
+Figure_6C<- ggarrange( p1,p2,p3, 
+                      ncol = 1, nrow = 3)
+Figure_6C
+
+ggsave("figures/Figure_6C.jpg",   width = 8, height = 32, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_6C.svg",  width = 8, height = 32, units = c("cm"), dpi = 600)
+
+ 
+```
+
+## Figure_7 
+
+### Figure_7A
+
+```{r Figure_7A}
+ST002201_AN003604 <- read.delim("data/ST002201_AN003604.txt", header=FALSE)
+metabolite_matrix<- ST002201_AN003604[2:137,] 
+colnames(metabolite_matrix) <- ST002201_AN003604[1,]
+metabolite_matrix[,-1] <- sapply(metabolite_matrix[,-1], FUN = as.numeric)
+
+label <- ST002201_AN003604[139:nrow(ST002201_AN003604),]
+colnames(label) <-  ST002201_AN003604[138,]
+label$class <- gsub("^.*_","",label$metabolite_fullname)
+
+
+annotation_col <-  data.frame(sample = colnames(metabolite_matrix)[-1],
+                              variable = colnames(metabolite_matrix)[-1] )
+annotation_col <- annotation_col %>%  separate(variable,c("Geno","Cond","Exp","rep"),sep = "_")
+rownames(annotation_col) <- annotation_col$sample
+
+my_colour = list(
+    Geno = c('Col-0'= "#5C9D79",'Cvi-0' = "#BF5F14", 'Sha' = "#736FAF", 'Tsu-0' = "#C62D86", 'Bur-0'= "#7CA433"),
+    Cond = c('W-N-' = "red", 'W+N-' = "purple", 'W-N+' = "orange", 'W+N+' = "blue")
+)
+ 
+rownames(metabolite_matrix) <- metabolite_matrix$metabolite_name
+
+ 
+res <- pheatmap(metabolite_matrix[,-1], name = 'metabolite',
+                scale = "row", 
+         clustering_method = "mcquitty",
+         clustering_distance_cols = 'correlation',
+         clustering_distance_rows = 'correlation',
+         show_colnames = F, show_rownames = T,fontsize = 8,
+         color = colorRampPalette(c("blue","yellow"))(30),
+         annotation_colors = my_colour,
+         annotation_col = annotation_col[,c("Geno","Cond")])
+
+plot <- as.ggplot(res)
+
+ggarrange(plot, 
+          labels = c('A'), 
+          ncol = 1, nrow = 1)
+
+ggsave("figures/Figure_7A.jpg",   width = 25, height = 50, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_7A.svg",  width = 25, height = 50, units = c("cm"), dpi = 600)
+
+
+```
+
+### Figure_7B
+```{r Figure_7B}
+mlist<- read.csv('data/vca_metabo.csv',row.names = 1)
+
+mlistdata <- reshape::melt(mlist)
+mlistdata$variable <- gsub("\\.","x",mlistdata$variable)
+mlistdata$variable <- factor(mlistdata$variable,levels= c("G", "W" ,'N', 'WxN', 'GxWxN','Exp', 'residual'))
+
+Figure_7B <- ggplot(mlistdata, aes(x=variable, y=value, fill=variable)) + geom_violin(trim=FALSE, scale = "width", draw_quantiles = c(0.25, 0.5, 0.75)) + stat_summary(fun.data=mean_sdl, geom="pointrange", color="black") +labs(title = paste0("GxWxN")) + xlab('')
+Figure_7B
+ggsave("figures/Figure_7B.jpg",   width = 20, height = 50, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_7B.svg",  width = 20, height = 50, units = c("cm"), dpi = 600)
+
+```
+
+
+### Figure_7C
+```{r Figure_7C}
+Pval <- read.csv('data/Pval_metabolite.csv')
+res1 <- subset(Pval[Pval$Geno=="Col-0",],Nstress.padj < 0.05)
+res2 <- subset(Pval[Pval$Geno=="Cvi-0",], Nstress.padj < 0.05)
+res3 <- subset(Pval[Pval$Geno=="Sha",], Nstress.padj < 0.05)
+res4 <- subset(Pval[Pval$Geno=="Tsu-0",], Nstress.padj < 0.05)
+res5 <- subset(Pval[Pval$Geno=="Bur-0",], Nstress.padj < 0.05)
+
+
+N_stress <- list(
+  Col0 = length(res1$metabolite),
+  Tsu0 = length(res4$metabolite),
+  Sha = length(res3$metabolite),
+  Bur0 = length(res5$metabolite),
+  Cvi = length(res2$metabolite)
+)
+ 
+eco.colors <- c("Bur0" = "#7CA433", 
+                    "Col0" = "#5C9D79",
+                    "Cvi0" = "#BF5F14",
+                    "Sha" = "#736FAF",
+                      "Tsu0" = "#C62D86")
+
+
+Col0 = as.character(res1$metabolite) #1
+Tsu = as.character(res4$metabolite) #1 #2
+Sha = as.character(res3$metabolite) #1 
+Bur0 = as.character(res5$metabolite) #1
+Cvi = as.character(res2$metabolite) #1
+ 
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+     
+Figure_7C_N <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main =  "W+N-",
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+
+ 
+
+res1 <- subset(Pval[Pval$Geno=="Col-0",],Wstress.padj < 0.05)
+res2 <- subset(Pval[Pval$Geno=="Cvi-0",], Wstress.padj < 0.05)
+res3 <- subset(Pval[Pval$Geno=="Sha",], Wstress.padj < 0.05)
+res4 <- subset(Pval[Pval$Geno=="Tsu-0",], Wstress.padj < 0.05)
+res5 <- subset(Pval[Pval$Geno=="Bur-0",], Wstress.padj < 0.05)
+
+    
+W_stress <- list(
+  Col0 = length(res1$metabolite),
+  Tsu0 = length(res4$metabolite),
+  Sha = length(res3$metabolite),
+  Bur0 = length(res5$metabolite),
+  Cvi = length(res2$metabolite)
+)
+
+
+ 
+Col0 = as.character(res1$metabolite) #1
+Tsu = as.character(res4$metabolite) #1 #2
+Sha = as.character(res3$metabolite) #1 
+Bur0 = as.character(res5$metabolite) #1
+Cvi = as.character(res2$metabolite) #1
+ 
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+     
+Figure_7C_W <-draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main =  "W-N+",
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+ 
+
+
+res1 <- subset(Pval[Pval$Geno=="Col-0",],combined_stress.padj < 0.05)
+res2 <- subset(Pval[Pval$Geno=="Cvi-0",], combined_stress.padj < 0.05)
+res3 <- subset(Pval[Pval$Geno=="Sha",], combined_stress.padj < 0.05)
+res4 <- subset(Pval[Pval$Geno=="Tsu-0",], combined_stress.padj < 0.05)
+res5 <- subset(Pval[Pval$Geno=="Bur-0",], combined_stress.padj < 0.05)
+
+
+N_stress <- list(
+  Col0 = length(res1$metabolite),
+  Tsu0 = length(res4$metabolite),
+  Sha = length(res3$metabolite),
+  Bur0 = length(res5$metabolite),
+  Cvi = length(res2$metabolite)
+)
+
+ 
+ 
+Col0 = as.character(res1$metabolite) #1
+Tsu = as.character(res4$metabolite) #1 #2
+Sha = as.character(res3$metabolite) #1 
+Bur0 = as.character(res5$metabolite) #1
+Cvi = as.character(res2$metabolite) #1
+ 
+area1=length(unique(Col0))#159
+area2=length(unique(Tsu))#1
+area3=length(unique(Sha))#0
+area4=length(unique(Bur0))#70
+area5=length(unique(Cvi))#3999
+
+n12=length(intersect(Col0, Tsu))
+n13=length(intersect(Col0, Sha))
+n14=length(intersect(Col0, Bur0))
+n15=length(intersect(Col0, Cvi))
+n23=length(intersect(Tsu, Sha))
+n24=length(intersect(Tsu, Bur0))
+n25=length(intersect(Tsu, Cvi))
+n34=length(intersect(Sha, Bur0))
+n35=length(intersect(Sha, Cvi))
+n45=length(intersect(Bur0, Cvi))
+n123=length(intersect(intersect(Col0, Tsu), Sha))
+n124=length(intersect(intersect(Col0, Tsu), Bur0))
+n125=length(intersect(intersect(Col0, Tsu), Cvi))
+n134=length(intersect(intersect(Col0, Sha), Bur0))
+n135=length(intersect(intersect(Col0, Sha), Cvi))
+n145=length(intersect(intersect(Col0, Bur0), Cvi))
+n234=length(intersect(intersect(Tsu, Sha), Bur0))
+n235=length(intersect(intersect(Tsu, Sha), Cvi))
+n245=length(intersect(intersect(Tsu, Bur0), Cvi))
+n345=length(intersect(intersect(Sha, Bur0), Cvi))
+
+n1234=length(intersect(intersect(Col0, Tsu),intersect(Sha, Bur0)))
+n1235=length(intersect(intersect(Col0, Tsu),intersect(Sha, Cvi)))
+n1245=length(intersect(intersect(Col0, Tsu),intersect(Bur0, Cvi)))
+n1345=length(intersect(intersect(Col0, Sha),intersect(Bur0, Cvi)))
+n2345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, Cvi)))
+
+n12345=length(intersect(intersect(Tsu, Sha),intersect(Bur0, intersect(Cvi,Col0))))
+
+     
+Figure_7C_NW <- draw.quintuple.venn(category = c("Col-0", "Tsu-0", "Sha", "Bur-0","Cvi-0"),
+                    cat.cex = 1.5,
+                    area1, area2, area3, area4, area5,
+                    n12, n13, n14, n15,n23, 
+                    n24, n25, n34, n35, n45,
+                    n123, n124, n125, n134,n135,
+                    n145, n234, n235, n245, n345,
+                    n1234, n1235,n1245, n1345, n2345,
+                    n12345,
+                    lwd = rep(2, 5), 
+                    lty = rep("solid", 5),
+                    col =rep("black", 5), 
+                    fill = eco.colors, 
+                    alpha = rep(0.5, 5),
+                    label.col = rep("black", 31),
+                    cex = rep(1, 31), 
+                    ind = TRUE, cex.prop =NULL,
+                    print.mode = "raw", sigdigs = 3,
+                    direct.area =FALSE, area.vector = 0,
+                    main =  "W-N-",
+                    cat.dist = rep(.3, 5),
+                    margin=.3)
+
+
+ 
+Figure_7C <- ggarrange(grobTree(Figure_7C_N),   
+                      grobTree(Figure_7C_NW),
+                      grobTree(Figure_7C_W),
+                      labels = c('W+N-',
+                                 'W-N-',
+                                 'W-N+'), 
+                      ncol = 1, nrow = 3)
+Figure_7C
+ggarrange(Figure_7B,   Figure_7C ,
+           labels = c('B','C'), 
+                      ncol = 1,heights = c(1, 3 )
+)
+
+
+ggsave("figures/Figure_7BC.jpg",   width = 20, height = 55, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_7BC.svg",  width = 20, height = 55, units = c("cm"), dpi = 600)
+
+
+```
+
+
+
+## Fig.8
+
+ 
+```{r Figure 8A} 
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(plotly)
+library(htmlwidgets)
+
+data <- read.table("data/omics.scaled.log2.tsv",header=T,check.names = F)
+rownames(data) <- gsub('Maltobionolactone','U2750/494',rownames(data))
+rownames(data) <- gsub('X2.Isopropylmalate','2.Isopropylmalate',rownames(data))
+rownames(data)<- gsub('X.N','N % ',rownames(data) )
+rownames(data) <- gsub('X.C','C %',rownames(data) )
+rownames(data) <- gsub('AT..15N.14N','AT N(15N/14N)',rownames(data) )
+rownames(data) <- gsub('d..15N.14N','delta N(15N/14N)',rownames(data) )
+rownames(data) <- gsub('X2.Oxoglutarate','2.Oxoglutarate',rownames(data) )
+rownames(data) <- gsub('d.15N.14N','delta N(15N/14N)',rownames(data) )
+rownames(data)<- gsub('NitrateContent.μmols.gFW.','Nitrate Content',rownames(data) )
+
+
+# symbol
+data$symbols <- gene_aliases$symbols[match(rownames(data),gene_aliases$name)]
+
+group <- data_frame(
+  name = rownames(data),
+  dataset = as.factor(data$dataset),
+  annotate = data$symbols
+)
+group$all<- paste0(group$name,"-",group$annotate)
+group$all <- gsub("-NA$","",group$all)
+
+Col.0_N<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Nstress_Col.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Col-0_W+N-")
+Col.0_W<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Wstress_Col.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Col-0_W-N+")
+Col.0_NW<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_combine_Col.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Col-0_W-N-")
+
+
+Cvi.0_N<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Nstress_Cvi.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Cvi-0_W+N-")
+Cvi.0_W<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Wstress_Cvi.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Cvi-0_W-N+")
+Cvi.0_NW<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_combine_Cvi.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Cvi-0_W-N-")
+
+Sha_N<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Nstress_Sha.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Sha_W+N-")
+Sha_W<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Wstress_Sha.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Sha_W-N+")
+Sha_NW<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_combine_Sha.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Sha_W-N-")
+
+
+Tsu.0_W<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Wstress_Tsu.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Tsu-0_W-N+")
+
+Tsu.0_N<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Nstress_Tsu.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Tsu-0_W+N-")
+
+Tsu.0_NW<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_combine_Tsu.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Tsu-0_W-N-")
+
+Bur.0_N<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Nstress_Bur.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Bur-0_W+N-")
+
+
+Bur.0_W<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_Wstress_Bur.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Bur-0_W-N+")
+
+Bur.0_NW<- igraph::as_data_frame(read.graph("data/omics_mixomics_network_ref_combine_Bur.0.gml", format = "gml"))  %>% tidygraph::mutate(graph = "Bur-0_W-N-")
+
+new<- rbind(Col.0_W,Cvi.0_W,Sha_W,Tsu.0_W,Bur.0_W,Col.0_N,Cvi.0_N,Sha_N,Tsu.0_N,Bur.0_N,Col.0_NW,Cvi.0_NW,Sha_NW,Tsu.0_NW,Bur.0_NW)
+
+class_order <-  c("Col-0_W+N-", "Col-0_W-N-" ,"Col-0_W-N+" ,
+"Cvi-0_W+N-" ,"Cvi-0_W-N-" ,"Cvi-0_W-N+",
+"Sha_W+N-","Sha_W-N-","Sha_W-N+",
+"Tsu-0_W+N-","Tsu-0_W-N-","Tsu-0_W-N+",
+"Bur-0_W+N-","Bur-0_W-N-" ,"Bur-0_W-N+"  )
+
+new$from <-  gsub("-.*","",new$from)
+new$to <-  gsub("-.* ","",new$to)
+new$from <- gsub('Maltobionolactone','U2750/494',new$from)
+new$to<- gsub('Maltobionolactone','U2750/494',new$to)
+new$graph <- factor(new$graph,levels = class_order)
+
+
+new$from <- gsub('X2.Isopropylmalate','2.Isopropylmalate',new$from )
+new$from <- gsub('X.N','N % ',new$from )
+new$from <- gsub('X.C','C %',new$from )
+new$from <- gsub('AT..15N.14N','AT N(15N/14N)',new$from )
+new$from <- gsub('d..15N.14N','delta N(15N/14N)',new$from )
+new$from <- gsub('X2.Oxoglutarate','2.Oxoglutarate',new$from )
+new$from <- gsub('d.15N.14N','delta N(15N/14N)',new$from )
+new$from <- gsub('NitrateContent.μmols.gFW.','Nitrate Content',new$from )
+
+new$to <- gsub('X2.Isopropylmalate','2.Isopropylmalate',new$to )
+new$to <- gsub('X.N','N % ',new$to )
+new$to <- gsub('X.C','C %',new$to )
+new$to <- gsub('AT..15N.14N','AT N(15N/14N)',new$to )
+new$to <- gsub('d..15N.14N','delta N(15N/14N)',new$to )
+new$to <- gsub('X2.Oxoglutarate','2.Oxoglutarate',new$to )
+new$to <- gsub('d.15N.14N','delta N(15N/14N)',new$to )
+new$to <- gsub('NitrateContent.μmols.gFW.','Nitrate Content',new$to )
+
+cor.graph <- as_tbl_graph(new, directed = FALSE)
+cor.graph <- cor.graph %>%
+  activate(edges) %>%
+  dplyr::rename(weight = weight)
+
+cor.graph <- cor.graph %>%
+  activate(nodes) %>%
+  dplyr::left_join(group, by = "name")
+
+
+cor.graph <- cor.graph %>%
+  activate(edges) %>%
+  dplyr::rename(weight = weight)
+
+
+
+Figure_8<- cor.graph %>%
+  activate(nodes)%>%
+  tidygraph::mutate(degree = centrality_degree())%>%
+  ggraph(layout = "stress") +
+  scale_edge_width(range = c(.5, 1.5)) +
+  geom_edge_link0(aes(color = weight,width= abs(weight))) +
+  geom_node_point(aes(fill = dataset,size = degree), shape = 21) +
+  geom_node_text(aes(label =  all ), size = 3, repel = TRUE) +
+  scale_edge_colour_distiller(palette = "Spectral")+
+  facet_edges(~ factor(graph, levels = class_order), ncol = 3) +
+  theme(legend.position = "bottom") +  theme(strip.text = element_text(size = 30))
+
+
+
+Figure_8
+
+ggsave("figures/Figure_8.jpg",   width = 60, height = 80, units = c("cm"), dpi = 600)
+ggsave("figures/Figure_8.svg",  width = 60, height = 80, units = c("cm"), dpi = 600)
+
+
+cor.graph <- cor.graph %>%
+  activate(nodes)%>%
+  tidygraph::mutate(degree = centrality_degree())%>%
+  ggraph(layout = "stress")
+# Create a layout using stress
+layout <- data.frame(cor.graph$data )
+group_names <- rep(class_order, each = nrow(layout))
+
+
+
+new_data <- data.frame(
+   x = rep(layout$x, 15),
+   y = rep(layout$y, 15),
+   circular = rep(layout$circular, 15),
+   name = rep(layout$name, 15),
+   dataset = rep(layout$dataset, 15),
+   annotate = rep(layout$annotate, 15),
+   all= rep(layout$all, 15),
+   degree = rep(layout$degree, 15),
+   graph = group_names
+)
+new_data <- new_data[!is.na(new_data$dataset),]
+new_data$graph <- factor(new_data$graph ,levels = class_order)
+new_data$info <-  paste0('name:',new_data$name ,' from dataset :',new_data$dataset )
+# Create data frame
+
+ggplot2_plot <- ggplot( new_data , aes(x = new_data$x, y = new_data$y)) + 
+  geom_point( aes( shape = dataset , size =  degree,text = paste0('Node name: ', name, "\n",
+                                                                  'Also known as: ',annotate, "\n",
+                                                                  "From dataset: ",dataset ) ),alpha= 0.5 )+
+  geom_segment(data =  new, aes(xend = layout[match(new$to, layout$name), 1],
+                                yend = layout[match(new$to, layout$name), 2],
+                                x = layout[match(new$from, layout$name), 1],
+                                y = layout[match(new$from, layout$name), 2],
+                                color = weight)) +
+  geom_text(aes(label=name,size = 8),alpha= 0.8) +
+  facet_wrap(~ graph, ncol = 3)   +
+  scale_color_distiller(palette = "Spectral") + theme_void() + 
+  theme(legend.position = "bottom",
+        strip.text = element_text( size = 30),
+        panel.grid = element_blank(),
+        axis.text = element_blank()) 
+
+
+# Convert the ggplot2 object to a Plotly plot
+p1 <- ggplotly(p = ggplot2_plot,tooltip = c( 'text' ),  height = 5760,width = 2880   )   
+
+saveWidget(p1, "./Figure_9.html", selfcontained = F, libdir = "Figure_9")
+
+```
+
+
+
+
+
+
+ 
